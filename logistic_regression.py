@@ -12,9 +12,7 @@ data = pd.read_csv("julius_randle_career_stats_by_game.csv", error_bad_lines=Fal
 
 data_cpy = data.copy()
 # data_cpy.columns
-# data_cpy = data_cpy.tail(100)
-
-#"PlayerEfficiencyRating", 
+data_cpy = data_cpy.tail(10)
 
 
 feature_cols = ["PlayerEfficiencyRating", "UsageRatePercentage", "FantasyPointsFantasyDraft", "FantasyPoints", "Minutes", "Assists",
@@ -28,15 +26,33 @@ data_cpy = data_cpy.loc[:, X_and_y]
 data_cpy = data_cpy.dropna()
 X = data_cpy.loc[:, feature_cols]
 
-# X.to_csv("test.csv")
+X.to_csv("test.csv")
 
 # print(X.shape)
 # print(X)
 
 # Get the Y values
 
-Y = data_cpy["Points"]
-# Y.to_csv("test_output.csv")
+# print(data_cpy[data_cpy["Index"].between(500, 600)])
+
+def average_last_n(df, window_size, reference_column, output_column):
+
+    lst = []
+
+    for i in range(0, len(data_cpy)):
+        if(i < window_size):
+            lst.append(df[reference_column].iloc[0:i].mean())
+        else:
+            lst.append(df[reference_column].iloc[i-window_size:i].mean())
+
+    lst[0] = 0
+    df[output_column] = lst
+
+average_last_n(data_cpy, 2, "Points", "PointsLast5")
+
+Y = data_cpy[["Points", "PointsLast5"]]
+
+Y.to_csv("test_output.csv")
 
 Y = data_cpy.Points
 # print(Y.shape)
@@ -53,6 +69,8 @@ Y = data_cpy.Points
 
 # X_test = data["X_tst"]
 # Y_test = data["Y_tst"]
+
+# ----------------
 
 # Fit the data to a logistic regression model.
 data_cpy = data_cpy.reset_index()
@@ -72,7 +90,6 @@ yhat = model.predict(X)
 Y_values = []
 
 for i in Y:
-    # type(i)
     Y_values.append(i)
 
 # print(Y_values)
@@ -82,6 +99,8 @@ for i in Y:
 acc_train = metrics.accuracy_score(Y, yhat)
 print("Training Data Classification Accuracy: %.3f" % acc_train)
 print()
+
+# ----------------
 
 # acc_test = model.score(X_test, Y_test)
 
