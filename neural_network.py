@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from data_parser import DataParser
 from sklearn import preprocessing
+from sklearn.model_selection import cross_val_score
 
 from logistic_regression import Y
 
@@ -51,14 +52,15 @@ parser.clean_data()
 parser.average_data()
 parser.create_features_and_target_data()
 X_train, X_test, y_train, y_test = parser.split_data()
+X_trains, y_trains = parser.k_splits(10)
 
 X_train_scaled = preprocessing.scale(X_train)
 X_test_scaled = preprocessing.scale(X_test)
 
 min_max_scaler = preprocessing.MinMaxScaler()
 
-X_train_scaled = min_max_scaler.fit_transform(X_train)
-X_test_scaled = min_max_scaler.fit_transform(X_test)
+# X_train_scaled = min_max_scaler.fit_transform(X_train)
+# X_test_scaled = min_max_scaler.fit_transform(X_test)
 
 # ------
 
@@ -68,13 +70,13 @@ print(y_train.shape)
 # ------
 
 # Defining input size, hidden layer size, output size and batch size respectively
-n_in, n_h, n_out, hidden_layers, activation_function = 44, 20, 1, 1, 'relu'
+n_in, n_h, n_out, hidden_layers, activation_function = 44, 50, 1, 3, 'relu'
 
 x = torch.tensor(X_train_scaled).float()
 y = torch.tensor(list(y_train)).float()
 
-# x_test = torch.tensor(X_test).float()
-# y_test = torch.tensor(Y_test).float()
+x_test = torch.tensor(X_test_scaled).float()
+y_test = torch.tensor(list(y_test)).float()
 
 
 class MyModule(nn.Module):
@@ -125,52 +127,56 @@ class MyModule(nn.Module):
 
         return x
 
+    def fit(self, x):
+        return model(x)
+
 model = nn.Sequential(MyModule(n_in, n_h, n_out, hidden_layers, activation_function))
 # print(model)
 
 # Construct the loss function
-criterion = torch.nn.BCELoss()
+criterion = torch.nn.L1Loss()
 # Construct the optimizer (Adam in this case)
-optimizer = torch.optim.Adam(model.parameters(), lr = 0.05)
+optimizer = torch.optim.Adam(model.parameters(), lr = 0.03)
 
 # Optimization
-for epoch in range(50):
-   # Forward pass: Compute predicted y by passing x to the model
-    y_pred = model(x)
 
-    #    y_pred_numpy = y_pred.detach().numpy()
-    #    y_pred_tanh_range = converge_to_binary(y_pred_numpy)
-    #    y_numpy = y.detach().numpy()
-    #    y_sigmoid_range = converge_to_prob(y_numpy)
+def train(model, x, y):
 
-    #    print(sklearn.metrics.accuracy_score(y_pred_tanh_range, y))
+    # Construct the loss function
+    criterion = torch.nn.L1Loss()
+    # Construct the optimizer (Adam in this case)
+    optimizer = torch.optim.Adam(model.parameters(), lr = 0.03)
 
-    # Compute and print loss
+    for epoch in range(150):
+    # Forward pass: Compute predicted y by passing x to the model
+        y_pred = model(x)
 
-    #    print(y_pred.shape)
-    # print(y_pred)
+        loss = criterion(y_pred, y)
+        # print('epoch: ', epoch,' loss: ', loss.item())
 
-    # print(y)
+        if(epoch == 149):
+            print('epoch: ', epoch,' loss: ', loss.item())
+            print(accuracy_slack(y, y_pred))
+            # print(y)
+            # print(y_pred)
 
-    # for val in y:
-    #     val = list(torch.tensor(val))
-        
-    # print(y)
+        # Zero gradients, perform a backward pass, and update the weights.
+        optimizer.zero_grad()
 
-    # print(torch.tensor(y).float().shape)
-    # print(torch.tensor(y).float())
+        # perform a backward pass (backpropagation)
+        loss.backward()
 
-    loss = criterion(y_pred, y)
-    print('epoch: ', epoch,' loss: ', loss.item())
+        # Update the parameters
+        optimizer.step()
 
-    # Zero gradients, perform a backward pass, and update the weights.
-    optimizer.zero_grad()
+        accuracy = accuracy_slack(y, y_pred)
 
-    # perform a backward pass (backpropagation)
-    loss.backward()
+    return accuracy
 
-    # Update the parameters
-    optimizer.step()
+# y_pred = model(x_test)
+
+# print("Testing Accuracy")
+# print(accuracy_slack(y_test, y_pred))
 
 # y_pred_tanh_range_from_train = y_pred_tanh_range
 
@@ -178,11 +184,45 @@ for epoch in range(50):
 # y_pred_numpy = y_pred.detach().numpy()
 # y_pred_tanh_range = converge_to_binary(y_pred_numpy)
 
-# print("Training Accuracy")
-# print(sklearn.metrics.accuracy_score(y_pred, y_train))
 
-# print("Testing Accuracy")
-# print(sklearn.metrics.accuracy_score(y_pred_tanh_range, y_test))
+def K_fold_evaluator(X, y):
+
+    training_accuracies = []
+    testing_accuracies = []
+
+    for i in range(0, 10):
+
+
+        X_copy = X.copy()
+        Y_copy = y.copy()
+
+        X_copy.pop(i)
+        Y_copy.pop(i)
+
+        X_trains = X_copy
+        y_trains = Y_copy
+
+        print(np.array(type(pd.concat(X_trains))))
+
+        x_train_combined = torch.tensor(pd.concat(X_trains).to_numpy()).float()
+        y_train_combined = torch.tensor(pd.concat(y_trains).to_numpy()).float()
+
+        model = nn.Sequential(MyModule(n_in, n_h, n_out, hidden_layers, activation_function))
+
+        training_accuracies.append(train(model, x_train_combined, y_train_combined))
+        y_pred = model(torch.tensor(X[i].to_numpy()).float())
+        testing_accuracies.append(accuracy_slack(y[i].to_numpy(), y_pred))
+
+    print("average train")
+    print(np.average(training_accuracies))
+    print("average test")
+    print(np.average(testing_accuracies))
+
+print(type(X_trains))
+
+K_fold_evaluator(X_trains, y_trains)
+
+# cross_val_score(model, X_train_scaled, y_train, cv=5)
 
 # Plotting the test data
 # plot_data(x_test, y_pred_tanh_range)

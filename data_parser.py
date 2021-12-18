@@ -1,5 +1,6 @@
 import pandas as pd
 import datetime
+import numpy as np
 from sklearn.model_selection import train_test_split
 
 class DataParser():
@@ -120,3 +121,7 @@ class DataParser():
     def split_data(self):
         X_train, X_test, y_train, y_test = train_test_split(self.features, self.target, random_state=1000)
         return X_train, X_test, y_train, y_test
+
+    def k_splits(self, k):
+        return np.array_split(self.features, k), np.array_split(self.target, k)
+
