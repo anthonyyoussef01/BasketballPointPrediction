@@ -2,10 +2,19 @@ import pandas as pd
 import datetime
 import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn import preprocessing
 
+'''
+This class is not designed well because the purpose was to 
+take the functionality out of the notebook and put it into a file
+for use with the neural network. Our objective was to focus on the model implementation
+and analysis vs. cleanly designing the parsing infrastructure 
+'''
+
+# Class to parse data from a CSV file into data structures to be processed.
 class DataParser():
 
-    # remove unnecessary columns from the data frame
+    # Remove unnecessary columns from the data frame
     removal_columns = ['StatID', 'Scope', 'TeamID', 'PlayerID', 'SeasonType', 'Season', 'Name',
        'Team', 'Position', 'Updated', 'GameID', 'OpponentID', 'Games',
        'OpponentStatID', 'DateTime', 'IsGameOver', 'Started', 'LineupStatus', 'LineupConfirmed',
@@ -21,15 +30,18 @@ class DataParser():
        'FieldGoalsMade', 'FieldGoalsAttempted', 'ThreePointersMade', 'ThreePointersAttempted', 'FreeThrowsMade', 'FreeThrowsAttempted',
        'OpponentPosition', 'FantasyDraftPosition', 'Unnamed: 78', 'Closed', 'Unnamed: 80', 'OpponentPositionRank']
 
+    # Columns we're averaging in dataframe
     columns_to_average = ['FantasyPoints', 'FanDuelSalary',
        'DraftKingsSalary', 'YahooSalary', 'Minutes', 'UsageRatePercentage',
        'FantasyPointsFanDuel', 'FantasyPointsDraftKings',
        'FantasyPointsYahoo',
        'FantasyPointsFantasyDraft', 'Points']
 
-    def __init__(self, csv_file):
+    # Reading the CSV file and initializing the points column, which is our target value.
+    def __init__(self, csv_file, games_to_look_back):
 
-        self.data = pd.read_csv("julius_randle_career_stats_by_game.csv", error_bad_lines=False)
+        self.games_to_look_back = games_to_look_back
+        self.data = pd.read_csv(csv_file, error_bad_lines=False)
 
         data_cpy = self.data.copy()
 
@@ -38,6 +50,7 @@ class DataParser():
 
         self.data_cpy = data_cpy
 
+    # Cleaning up the data and removing columns we don't need
     def clean_data(self):
         
         data_good = self.data_cpy.drop(labels=self.removal_columns, axis=1)
@@ -75,6 +88,8 @@ class DataParser():
 
         self.data_final = data_good2.copy()
 
+    # For several values, we want to take the average over the last n games to compute the next game.
+    # This function does exactly that where window_size is the n games.
     def average_last_n(self, df, window_size, reference_column, output_column):
         """
         Finds the average of the previous window_size number of values for a column,
@@ -90,15 +105,14 @@ class DataParser():
 
         lst[0] = 0
         df[output_column] = lst
-        return
 
-
+    # Averaging the values for several categories over the last n games
     def average_data(self):
 
         # iteratively update all the columns to be average of last 10
         for col in self.columns_to_average:
             new_name = col + "Avg"
-            self.average_last_n(self.data_final, 10, col, new_name)
+            self.average_last_n(self.data_final, self.games_to_look_back, col, new_name)
 
             if col != "Points":
                 self.data_final.drop(labels=col, inplace=True, axis=1)
@@ -112,16 +126,29 @@ class DataParser():
         self.data_final = self.data_final[self.data_final["DaysSinceInjury"] != 0]
         self.data_final.drop(columns="InjuryStatus", inplace=True)
 
+    # Separating our data into the features and target dataframes
+    # These need to be further process as they are not vectors
     def create_features_and_target_data(self):
 
         self.features = self.data_final.drop(columns="Points")
 
         self.target = self.data_final["Points"]
 
+    # Function to split the data into a train and test set
     def split_data(self):
         X_train, X_test, y_train, y_test = train_test_split(self.features, self.target, random_state=1000)
         return X_train, X_test, y_train, y_test
 
+    # Function to split the data into k subsets for k-fold validation
     def k_splits(self, k):
+
+        # We were experimenting with scaling the data to improve performance
+        # and prevent our neural network from simply converging to the mean.
+        # We found scaling the data made the issue worse, so we omitted the
+        # otherwise logical step. 
+
+        # features_scaled = preprocessing.scale(self.features)
+        # targets_scaled = preprocessing.scale(self.target)
+
         return np.array_split(self.features, k), np.array_split(self.target, k)
 

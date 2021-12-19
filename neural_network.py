@@ -1,84 +1,55 @@
 import torch 
 import torch.nn as nn
-import scipy.io as sp
-import sklearn.metrics
 import numpy as np
 import sys
-import matplotlib.pyplot as plt
 import pandas as pd
 from data_parser import DataParser
 from sklearn import preprocessing
-from sklearn.model_selection import cross_val_score
 
-from logistic_regression import Y
+# Hyperparameter definitions
 
-def plot_data(X, Y):
+# For data parsing
+games_to_look_back = 10
 
-    data_x_class_pos = []
-    data_y_class_pos = []
-    data_x_class_neg = []
-    data_y_class_neg = []
+# For the model architecture
+# Defining input size, hidden layer size, output size and batch size respectively
+n_in, n_h, n_out, hidden_layers, activation_function = 44, 50, 1, 3, 'relu'
 
-    for i in range(0, len(X)):
-        if Y[i] == -1:
-            data_x_class_pos.append(X[i][0]) 
-            data_y_class_pos.append(X[i][1])
-        else:
-            data_x_class_neg.append(X[i][0]) 
-            data_y_class_neg.append(X[i][1])
+# For training and evaluation
+k_folds = 10
+epochs = 150
 
-    plt.scatter(data_x_class_pos, data_y_class_pos, color='orange')
-    plt.scatter(data_x_class_neg, data_y_class_neg, color='blue')
-    plt.show()
-
-def converge_to_binary(x):
-    x = np.where(x < .5, -1, 1)
-    return x
-
-def converge_to_prob(x):
-    x = np.where(x < 0., 0., 1.)
-    return x
-
+# Custom metric for evaluating accuracy while allowing 
+# slack in either direction. This is not a hyperparameter.
+# We simply wanted a metric to evaluate our model that wasn't
+# looking for an exact real number. From a technical standpoint,
+# we can't expect our model to produce an exact real number.
+# From a practical standpoint being able to estimate a player's
+# points in a game within 1 point is still exceptionally useful. 
 def accuracy_slack(y_train, yhat):
-  counter = 0
-  for i in range(0, len(y_train)):
-    if abs(y_train[i] - yhat[i]) < 1:
-      counter+= 1
-  return counter/len(y_train)
+    slack = 1
+    counter = 0
+    for i in range(0, len(y_train)):
+        if abs(y_train[i] - yhat[i]) < slack:
+            counter+= 1
+    return counter/len(y_train)
 
-parser = DataParser("julius_randle_career_stats_by_game.csv")
+parser = DataParser("julius_randle_career_stats_by_game.csv", games_to_look_back)
 
 parser.clean_data()
 parser.average_data()
 parser.create_features_and_target_data()
 X_train, X_test, y_train, y_test = parser.split_data()
-X_trains, y_trains = parser.k_splits(10)
+X_trains, y_trains = parser.k_splits(k_folds)
 
-X_train_scaled = preprocessing.scale(X_train)
-X_test_scaled = preprocessing.scale(X_test)
+# X_train_scaled = preprocessing.scale(X_train)
+# X_test_scaled = preprocessing.scale(X_test)
 
-min_max_scaler = preprocessing.MinMaxScaler()
+# We experimented with different forms of preprocessing
+# min_max_scaler = preprocessing.MinMaxScaler()
 
-# X_train_scaled = min_max_scaler.fit_transform(X_train)
-# X_test_scaled = min_max_scaler.fit_transform(X_test)
-
-# ------
-
-print(X_train_scaled.shape)
-print(y_train.shape)
-
-# ------
-
-# Defining input size, hidden layer size, output size and batch size respectively
-n_in, n_h, n_out, hidden_layers, activation_function = 44, 50, 1, 3, 'relu'
-
-x = torch.tensor(X_train_scaled).float()
-y = torch.tensor(list(y_train)).float()
-
-x_test = torch.tensor(X_test_scaled).float()
-y_test = torch.tensor(list(y_test)).float()
-
-
+# This is a modified version of the HW4 modular neural network
+# It's a simple Feed Forward Neural Network.
 class MyModule(nn.Module):
     def __init__(self, n_in, neurons_per_hidden, n_out, hidden_layers, activation_function):
         super(MyModule, self).__init__()
@@ -127,38 +98,19 @@ class MyModule(nn.Module):
 
         return x
 
-    def fit(self, x):
-        return model(x)
-
-model = nn.Sequential(MyModule(n_in, n_h, n_out, hidden_layers, activation_function))
-# print(model)
-
-# Construct the loss function
-criterion = torch.nn.L1Loss()
-# Construct the optimizer (Adam in this case)
-optimizer = torch.optim.Adam(model.parameters(), lr = 0.03)
-
-# Optimization
-
-def train(model, x, y):
+# Train a model for a number of epochs 
+def train(model, x, y, epochs):
 
     # Construct the loss function
     criterion = torch.nn.L1Loss()
     # Construct the optimizer (Adam in this case)
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.03)
 
-    for epoch in range(150):
+    for epoch in range(epochs):
     # Forward pass: Compute predicted y by passing x to the model
         y_pred = model(x)
 
         loss = criterion(y_pred, y)
-        # print('epoch: ', epoch,' loss: ', loss.item())
-
-        if(epoch == 149):
-            print('epoch: ', epoch,' loss: ', loss.item())
-            print(accuracy_slack(y, y_pred))
-            # print(y)
-            # print(y_pred)
 
         # Zero gradients, perform a backward pass, and update the weights.
         optimizer.zero_grad()
@@ -169,28 +121,19 @@ def train(model, x, y):
         # Update the parameters
         optimizer.step()
 
-        accuracy = accuracy_slack(y, y_pred)
+    accuracy = accuracy_slack(y, y_pred)
 
-    return accuracy
+    return accuracy, loss.item()
 
-# y_pred = model(x_test)
-
-# print("Testing Accuracy")
-# print(accuracy_slack(y_test, y_pred))
-
-# y_pred_tanh_range_from_train = y_pred_tanh_range
-
-# y_pred = model(X_train_scaled)
-# y_pred_numpy = y_pred.detach().numpy()
-# y_pred_tanh_range = converge_to_binary(y_pred_numpy)
-
-
-def K_fold_evaluator(X, y):
+# An implementation of k-fold validation to evaluate the model.
+# Returns a list of all training accuracies, training losses, and testing accuracies
+def K_fold_evaluator(X, y, epochs, k_folds):
 
     training_accuracies = []
     testing_accuracies = []
+    training_loss = []
 
-    for i in range(0, 10):
+    for i in range(0, k_folds):
 
 
         X_copy = X.copy()
@@ -202,28 +145,32 @@ def K_fold_evaluator(X, y):
         X_trains = X_copy
         y_trains = Y_copy
 
-        print(np.array(type(pd.concat(X_trains))))
-
         x_train_combined = torch.tensor(pd.concat(X_trains).to_numpy()).float()
         y_train_combined = torch.tensor(pd.concat(y_trains).to_numpy()).float()
 
         model = nn.Sequential(MyModule(n_in, n_h, n_out, hidden_layers, activation_function))
 
-        training_accuracies.append(train(model, x_train_combined, y_train_combined))
+        accuracy, loss = train(model, x_train_combined, y_train_combined, epochs)
+
+        training_accuracies.append(accuracy)
+        training_loss.append(loss)
         y_pred = model(torch.tensor(X[i].to_numpy()).float())
         testing_accuracies.append(accuracy_slack(y[i].to_numpy(), y_pred))
 
-    print("average train")
-    print(np.average(training_accuracies))
-    print("average test")
-    print(np.average(testing_accuracies))
+    return training_accuracies, training_loss, testing_accuracies
 
-print(type(X_trains))
+training_accuracies, training_loss, testing_accuracies = K_fold_evaluator(X_trains, y_trains, epochs, k_folds)
 
-K_fold_evaluator(X_trains, y_trains)
-
-# cross_val_score(model, X_train_scaled, y_train, cv=5)
-
-# Plotting the test data
-# plot_data(x_test, y_pred_tanh_range)
+print("Average train")
+print(np.average(training_accuracies))
+print("Average training loss")
+print(np.average(training_loss))
+print("Average test")
+print(np.average(testing_accuracies))
+print("Train values")
+print(training_accuracies)
+print("Loss values")
+print(training_loss)
+print("Test values")
+print(testing_accuracies)
 
